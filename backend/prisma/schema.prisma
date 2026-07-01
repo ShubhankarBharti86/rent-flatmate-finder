@@ -1,0 +1,149 @@
+// Prisma schema for Rent & Flatmate Finder
+// Default datasource is PostgreSQL for production (Render/Railway/Vercel Postgres).
+// For local dev without Postgres installed, set DATABASE_URL="file:./dev.db" and
+// change provider to "sqlite" (see README "Local Dev with SQLite" section).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  TENANT
+  OWNER
+  ADMIN
+}
+
+enum FurnishingStatus {
+  FURNISHED
+  SEMI_FURNISHED
+  UNFURNISHED
+}
+
+enum RoomType {
+  PRIVATE_ROOM
+  SHARED_ROOM
+  STUDIO
+  ENTIRE_FLAT
+}
+
+enum InterestStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+}
+
+model User {
+  id           String    @id @default(uuid())
+  name         String
+  email        String    @unique
+  passwordHash String
+  role         Role
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  // Owner side
+  listings        Listing[]        @relation("OwnerListings")
+  // Tenant side
+  tenantProfile   TenantProfile?
+  interestsSent   Interest[]       @relation("TenantInterests")
+  interestsRecv   Interest[]       @relation("OwnerInterests")
+  messagesSent    Message[]        @relation("SentMessages")
+  chatsAsTenant   Chat[]           @relation("ChatTenant")
+  chatsAsOwner    Chat[]           @relation("ChatOwner")
+}
+
+model TenantProfile {
+  id               String   @id @default(uuid())
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId           String   @unique
+  preferredLocation String
+  budgetMin        Int
+  budgetMax        Int
+  moveInDate       DateTime
+  bio              String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  matches          Match[]
+}
+
+model Listing {
+  id                String           @id @default(uuid())
+  owner             User             @relation("OwnerListings", fields: [ownerId], references: [id], onDelete: Cascade)
+  ownerId           String
+  location          String
+  rent              Int
+  availableFrom     DateTime
+  roomType          RoomType
+  furnishingStatus  FurnishingStatus
+  photos            String[]         @default([])
+  description       String?
+  isFilled          Boolean          @default(false)
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  matches           Match[]
+  interests         Interest[]
+}
+
+// Stores the AI (or fallback) compatibility score for a tenant-listing pair.
+// Computed once and cached here, not recomputed on every request.
+model Match {
+  id              String         @id @default(uuid())
+  tenant          TenantProfile  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenantId        String
+  listing         Listing        @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  listingId       String
+  score           Int
+  explanation     String
+  scoreSource     String         @default("LLM") // "LLM" or "RULE_BASED"
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@unique([tenantId, listingId])
+}
+
+model Interest {
+  id          String          @id @default(uuid())
+  tenant      User            @relation("TenantInterests", fields: [tenantId], references: [id], onDelete: Cascade)
+  tenantId    String
+  owner       User            @relation("OwnerInterests", fields: [ownerId], references: [id], onDelete: Cascade)
+  ownerId     String
+  listing     Listing         @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  listingId   String
+  status      InterestStatus  @default(PENDING)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  chat        Chat?
+
+  @@unique([tenantId, listingId])
+}
+
+model Chat {
+  id          String     @id @default(uuid())
+  interest    Interest   @relation(fields: [interestId], references: [id], onDelete: Cascade)
+  interestId  String     @unique
+  tenant      User       @relation("ChatTenant", fields: [tenantId], references: [id])
+  tenantId    String
+  owner       User       @relation("ChatOwner", fields: [ownerId], references: [id])
+  ownerId     String
+  createdAt   DateTime   @default(now())
+
+  messages    Message[]
+}
+
+model Message {
+  id        String   @id @default(uuid())
+  chat      Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  chatId    String
+  sender    User     @relation("SentMessages", fields: [senderId], references: [id])
+  senderId  String
+  content   String
+  createdAt DateTime @default(now())
+}
