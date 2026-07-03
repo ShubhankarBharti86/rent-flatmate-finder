@@ -1,4 +1,4 @@
-const API_BASE = '/api';
+const API_BASE = 'https://rent-flatmate-finder-backend-17ha.onrender.com/api';
 
 const Api = {
   token() { return localStorage.getItem('rff_token'); },
